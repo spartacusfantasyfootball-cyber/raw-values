@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Personal Trade Calculator</title>
+<style>
+:root {
+  --bg: #14181c;
+  --panel: #1f262d;
+  --panel-2: #262e36;
+  --accent: #e3a83b;
+  --ink: #f2f2ee;
+  --ink-soft: #9aa5ad;
+  --line: #333c44;
+  --green: #3d8b5f;
+  --red: #b5504a;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  min-height: 100vh;
+}
+.wrap { max-width: 560px; margin: 0 auto; padding: 20px 14px 48px; }
+h1 { font-size: 22px; margin: 0 0 2px; }
+.sub { color: var(--ink-soft); font-size: 13px; margin: 0 0 18px; }
+
+.toggle-row { display: flex; gap: 8px; margin-bottom: 18px; }
+.src-btn {
+  flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--ink-soft); font-size: 14px; font-weight: 600;
+  cursor: pointer; text-align: center;
+}
+.src-btn.active { background: var(--accent); color: #1a1500; border-color: var(--accent); }
+.src-note { font-size: 12px; color: var(--ink-soft); margin: -10px 0 18px; }
+
+.board { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+@media (max-width: 480px) { .board { grid-template-columns: 1fr; } }
+.side {
+  background: var(--panel); border-radius: 12px; padding: 14px;
+  border: 1px solid var(--line);
+}
+.side h2 { font-size: 15px; margin: 0 0 10px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.5px; }
+.roster-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 14px;
+}
+.roster-row:last-child { border-bottom: none; }
+.roster-name { font-weight: 500; }
+.roster-pos { color: var(--ink-soft); font-size: 11px; margin-left: 6px; }
+.roster-right { display: flex; align-items: center; gap: 8px; }
+.roster-value { font-weight: 700; color: var(--accent); }
+.remove-btn {
+  background: none; border: none; color: var(--ink-soft); font-size: 18px;
+  cursor: pointer; line-height: 1; padding: 0 2px;
+}
+.total-row {
+  display: flex; justify-content: space-between; font-size: 14px;
+  padding-top: 8px; margin-top: 4px; border-top: 1px solid var(--line);
+}
+.total-val { font-weight: 700; color: var(--accent); }
+
+.search-wrap { position: relative; margin-top: 10px; }
+.search-input {
+  width: 100%; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel-2); color: var(--ink); font-size: 14px;
+}
+.suggestions {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 5;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  margin-top: 4px; max-height: 220px; overflow-y: auto;
+}
+.suggestion-row {
+  display: flex; justify-content: space-between; padding: 8px 10px;
+  cursor: pointer; font-size: 13px;
+}
+.suggestion-row:hover { background: var(--panel); }
+.suggestion-meta { color: var(--ink-soft); }
+
+.verdict {
+  background: var(--panel); border-radius: 12px; padding: 14px; text-align: center;
+  font-size: 15px; font-weight: 600; border: 1px solid var(--line);
+}
+.verdict .amt { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Personal Trade Calculator</h1>
+  <p class="sub" id="week-label">Raw, single-source values — no blending or normalization.</p>
+
+  <div class="toggle-row">
+    <button class="src-btn active" data-src="usa">USA Today</button>
+    <button class="src-btn" data-src="yahoo">Yahoo</button>
+  </div>
+  <p class="src-note" id="src-note"></p>
+
+  <div class="board">
+    <div class="side" data-side="A">
+      <h2>Side A</h2>
+      <div id="roster-A"></div>
+      <div class="total-row"><span>Total</span><span class="total-val" id="total-A">0.0</span></div>
+      <div class="search-wrap">
+        <input class="search-input" data-side="A" placeholder="Search a player...">
+        <div class="suggestions" id="suggestions-A" style="display:none;"></div>
+      </div>
+    </div>
+    <div class="side" data-side="B">
+      <h2>Side B</h2>
+      <div id="roster-B"></div>
+      <div class="total-row"><span>Total</span><span class="total-val" id="total-B">0.0</span></div>
+      <div class="search-wrap">
+        <input class="search-input" data-side="B" placeholder="Search a player...">
+        <div class="suggestions" id="suggestions-B" style="display:none;"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="verdict" id="verdict">Add players to both sides to see the verdict</div>
+</div>
+
+<script src="data.js"></script>
+<script>
+const state = { source: 'usa', A: [], B: [] };
+
+function getValue(p) {
+  return p.pos === 'QB' ? p.oneQB : p.ppr;
+}
+
+function currentPlayers() {
+  return SOURCES[state.source].players;
+}
+
+function renderSourceNote() {
+  const note = document.getElementById('src-note');
+  const players = currentPlayers();
+  if (players.length === 0) {
+    note.textContent = SOURCES[state.source].label + ' hasn\'t published a chart yet this week.';
+  } else {
+    note.textContent = SOURCES[state.source].label + ' — ' + players.length + ' players, 1QB / Full PPR only.';
+  }
+}
+
+function renderSuggestions(side, query) {
+  const box = document.getElementById('suggestions-' + side);
+  const q = query.trim().toLowerCase();
+  if (q.length < 1) { box.style.display = 'none'; return; }
+  const already = state[side].map(p => p.name);
+  const matches = currentPlayers()
+    .filter(p => p.name.toLowerCase().includes(q) && !already.includes(p.name))
+    .slice(0, 8);
+  if (matches.length === 0) { box.style.display = 'none'; return; }
+  box.innerHTML = matches.map(p => {
+    const v = getValue(p);
+    const vDisp = v == null ? '\u2014' : v.toFixed(1);
+    return '<div class="suggestion-row" data-name="' + p.name.replace(/"/g,'&quot;') + '" data-side="' + side + '">' +
+      '<span>' + p.name + '</span>' +
+      '<span class="suggestion-meta">' + p.pos + '  ' + vDisp + '</span>' +
+    '</div>';
+  }).join('');
+  box.style.display = 'block';
+}
+
+function addPlayer(side, name) {
+  const p = currentPlayers().find(pl => pl.name === name);
+  if (!p) return;
+  state[side].push(p);
+  document.getElementById('suggestions-' + side).style.display = 'none';
+  document.querySelector('.search-input[data-side="' + side + '"]').value = '';
+  renderAll();
+}
+
+function removePlayer(side, name) {
+  state[side] = state[side].filter(p => p.name !== name);
+  renderAll();
+}
+
+function renderSide(side) {
+  const roster = document.getElementById('roster-' + side);
+  roster.innerHTML = state[side].map(p => {
+    const v = getValue(p);
+    const vDisp = v == null ? '\u2014' : v.toFixed(1);
+    return '<div class="roster-row">' +
+      '<span><span class="roster-name">' + p.name + '</span><span class="roster-pos">' + p.pos + '</span></span>' +
+      '<span class="roster-right">' +
+        '<span class="roster-value">' + vDisp + '</span>' +
+        '<button class="remove-btn" data-side="' + side + '" data-name="' + p.name.replace(/"/g,'&quot;') + '">&times;</button>' +
+      '</span>' +
+    '</div>';
+  }).join('');
+  const total = state[side].reduce((sum, p) => sum + (getValue(p) || 0), 0);
+  document.getElementById('total-' + side).textContent = total.toFixed(1);
+  return total;
+}
+
+function renderVerdict(totalA, totalB) {
+  const el = document.getElementById('verdict');
+  if (state.A.length === 0 || state.B.length === 0) {
+    el.innerHTML = 'Add players to both sides to see the verdict';
+    return;
+  }
+  const diff = totalA - totalB;
+  if (Math.abs(diff) < 0.5) {
+    el.innerHTML = 'Even trade';
+  } else if (diff > 0) {
+    el.innerHTML = 'Side A wins by <span class="amt">' + diff.toFixed(1) + '</span> points';
+  } else {
+    el.innerHTML = 'Side B wins by <span class="amt">' + (-diff).toFixed(1) + '</span> points';
+  }
+}
+
+function renderAll() {
+  const totalA = renderSide('A');
+  const totalB = renderSide('B');
+  renderVerdict(totalA, totalB);
+}
+
+document.querySelectorAll('.src-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.src-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.source = btn.dataset.src;
+    state.A = []; state.B = [];
+    renderSourceNote();
+    renderAll();
+  });
+});
+
+document.querySelectorAll('.search-input').forEach(input => {
+  input.addEventListener('input', (e) => renderSuggestions(e.target.dataset.side, e.target.value));
+});
+
+document.addEventListener('click', (e) => {
+  const sug = e.target.closest('.suggestion-row');
+  if (sug) { addPlayer(sug.dataset.side, sug.dataset.name); return; }
+  const rm = e.target.closest('.remove-btn');
+  if (rm) { removePlayer(rm.dataset.side, rm.dataset.name); return; }
+  if (!e.target.closest('.search-wrap')) {
+    document.querySelectorAll('.suggestions').forEach(s => s.style.display = 'none');
+  }
+});
+
+document.getElementById('week-label').textContent = WEEK_LABEL + ' — raw, single-source values (no blending or normalization).';
+renderSourceNote();
+renderAll();
+</script>
+</body>
+</html>
