@@ -142,11 +142,15 @@ function renderSourceNote() {
   }
 }
 
+function findPlayer(name) {
+  return currentPlayers().find(p => p.name === name);
+}
+
 function renderSuggestions(side, query) {
   const box = document.getElementById('suggestions-' + side);
   const q = query.trim().toLowerCase();
   if (q.length < 1) { box.style.display = 'none'; return; }
-  const already = state[side].map(p => p.name);
+  const already = state[side];
   const matches = currentPlayers()
     .filter(p => p.name.toLowerCase().includes(q) && !already.includes(p.name))
     .slice(0, 8);
@@ -163,22 +167,37 @@ function renderSuggestions(side, query) {
 }
 
 function addPlayer(side, name) {
-  const p = currentPlayers().find(pl => pl.name === name);
-  if (!p) return;
-  state[side].push(p);
+  if (state[side].includes(name)) return;
+  state[side].push(name);
   document.getElementById('suggestions-' + side).style.display = 'none';
   document.querySelector('.search-input[data-side="' + side + '"]').value = '';
   renderAll();
 }
 
 function removePlayer(side, name) {
-  state[side] = state[side].filter(p => p.name !== name);
+  state[side] = state[side].filter(n => n !== name);
   renderAll();
 }
 
 function renderSide(side) {
   const roster = document.getElementById('roster-' + side);
-  roster.innerHTML = state[side].map(p => {
+  roster.innerHTML = state[side].map(name => {
+    // Look the player up fresh in the CURRENTLY selected source every
+    // render — this is what makes switching sources preserve the roster
+    // instead of clearing it. A player who isn't rated by the newly
+    // selected source shows as "not rated by <source>" rather than being
+    // silently dropped or treated as worth 0 (which would be misleading —
+    // "no data" and "worth zero" are different things).
+    const p = findPlayer(name);
+    if (!p) {
+      return '<div class="roster-row">' +
+        '<span><span class="roster-name">' + name + '</span></span>' +
+        '<span class="roster-right">' +
+          '<span class="roster-value" style="color:var(--ink-soft);font-size:12px;">not rated by ' + SOURCES[state.source].label + '</span>' +
+          '<button class="remove-btn" data-side="' + side + '" data-name="' + name.replace(/"/g,'&quot;') + '">&times;</button>' +
+        '</span>' +
+      '</div>';
+    }
     const v = getValue(p);
     const vDisp = v == null ? '\u2014' : v.toFixed(1);
     return '<div class="roster-row">' +
@@ -189,7 +208,10 @@ function renderSide(side) {
       '</span>' +
     '</div>';
   }).join('');
-  const total = state[side].reduce((sum, p) => sum + (getValue(p) || 0), 0);
+  const total = state[side].reduce((sum, name) => {
+    const p = findPlayer(name);
+    return sum + (p ? (getValue(p) || 0) : 0);
+  }, 0);
   document.getElementById('total-' + side).textContent = total.toFixed(1);
   return total;
 }
@@ -221,7 +243,12 @@ document.querySelectorAll('.src-btn').forEach(btn => {
     document.querySelectorAll('.src-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     state.source = btn.dataset.src;
-    state.A = []; state.B = [];
+    // Deliberately NOT clearing state.A/state.B here — the whole point of
+    // this toggle is to compare the same trade across sources without
+    // re-adding players each time. renderSide looks each name up fresh
+    // in the newly selected source, so totals and the verdict update
+    // automatically; a player not rated by the new source shows plainly
+    // rather than being dropped or silently counted as 0.
     renderSourceNote();
     renderAll();
   });
