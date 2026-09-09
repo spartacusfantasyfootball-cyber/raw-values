@@ -142,17 +142,40 @@ function renderSourceNote() {
   }
 }
 
+// Same normalization approach as the main FairTrade pipeline's
+// canonical_key() — strip common suffixes and case-fold, so "Patrick
+// Mahomes" (USA's spelling) and "Patrick Mahomes II" (Yahoo's spelling)
+// are recognized as the same player for search/lookup purposes, without
+// changing what name is actually displayed for each source. This tool
+// deliberately does NOT merge sources' data values (that's the main
+// site's job) — this only fixes matching two different name STRINGS for
+// the same real person across sources.
+const NAME_SUFFIXES = new Set(['jr','sr','ii','iii','iv','v']);
+function normalizeName(name) {
+  const parts = name.trim().split(/\s+/);
+  const last = parts[parts.length - 1].toLowerCase().replace(/\.$/, '');
+  if (parts.length > 1 && NAME_SUFFIXES.has(last)) {
+    parts.pop();
+  }
+  return parts.join(' ').toLowerCase();
+}
+
 function findPlayer(name) {
-  return currentPlayers().find(p => p.name === name);
+  const target = normalizeName(name);
+  return currentPlayers().find(p => normalizeName(p.name) === target);
 }
 
 function renderSuggestions(side, query) {
   const box = document.getElementById('suggestions-' + side);
   const q = query.trim().toLowerCase();
   if (q.length < 1) { box.style.display = 'none'; return; }
-  const already = state[side];
+  // Normalized comparison here too — otherwise switching sources then
+  // searching the same player again (under that source's own spelling)
+  // wouldn't recognize they're already on the roster, letting them get
+  // added a second time as an apparent duplicate.
+  const already = state[side].map(normalizeName);
   const matches = currentPlayers()
-    .filter(p => p.name.toLowerCase().includes(q) && !already.includes(p.name))
+    .filter(p => p.name.toLowerCase().includes(q) && !already.includes(normalizeName(p.name)))
     .slice(0, 8);
   if (matches.length === 0) { box.style.display = 'none'; return; }
   box.innerHTML = matches.map(p => {
@@ -167,7 +190,8 @@ function renderSuggestions(side, query) {
 }
 
 function addPlayer(side, name) {
-  if (state[side].includes(name)) return;
+  const target = normalizeName(name);
+  if (state[side].some(n => normalizeName(n) === target)) return;
   state[side].push(name);
   document.getElementById('suggestions-' + side).style.display = 'none';
   document.querySelector('.search-input[data-side="' + side + '"]').value = '';
